@@ -8,7 +8,7 @@ import (
 
 	"github.com/warpstreamlabs/bento/internal/bundle"
 	"github.com/warpstreamlabs/bento/internal/filepath/ifs"
-	"github.com/warpstreamlabs/bento/internal/filepath/tar"
+	"github.com/warpstreamlabs/bento/internal/plugin/bpl"
 	"github.com/warpstreamlabs/bento/internal/plugin/runtime"
 )
 
@@ -47,53 +47,50 @@ func InitPlugins(ctx context.Context, env *bundle.Environment, rt runtime.Runtim
 
 	var lints []string
 	for _, path := range pluginPaths {
-		var files tar.TarFiles
-		var manifestBytes []byte
-		var source runtime.Source
-		var err error
-		var ok bool
-
-		if filepath.Ext(path) == ".bpl" {
-			files, err = tar.ReadTarFromFile(path)
-			if err != nil {
-				return nil, err
-			}
-			manifestBytes, ok = files["plugin.yaml"]
-			if !ok {
-				return nil, fmt.Errorf("plugin %v: missing manifest \"plugin.yaml\" file", path)
-			}
-			source = runtime.TarMapSource(files)
-		} else {
-			manifestPath := filepath.Join(path, "plugin.yaml")
-			manifestBytes, err = ifs.ReadFile(ifs.OS(), manifestPath)
-			if err != nil {
-				return nil, fmt.Errorf("plugin %v: failed to read manifest: %w", path, err)
-			}
-			source = runtime.DirSource(path)
+		manifestBytes, wasmSource, err := loadPlugin(path)
+		if err != nil {
+			return nil, fmt.Errorf("plugin %v: %w", path, err)
 		}
 
-		// Converts manifest from bytes to in-memory object
 		manifest, manifestLints, err := runtime.ReadManifestYAML(manifestBytes)
 		if err != nil {
 			return nil, fmt.Errorf("plugin %v: %w", path, err)
 		}
 
-		// Add all linting errors to the list
 		for _, l := range manifestLints {
 			lints = append(lints, fmt.Sprintf("plugin %v: %v", path, l))
 		}
 
-		// Register the plugin with a manifest and a string directory to load from
-		plugin, err := rt.Register(manifest, source)
+		plugin, err := rt.Register(manifest, wasmSource)
 		if err != nil {
 			return nil, fmt.Errorf("plugin %v failed to register: %w", manifest.Name, err)
 		}
 
-		// Register with envrionment
 		if err := plugin.RegisterWith(env); err != nil {
 			return nil, fmt.Errorf("plugin %v: failed to register with environment: %w", manifest.Name, err)
 		}
 	}
 
 	return lints, nil
+}
+
+func loadPlugin(path string) ([]byte, runtime.Source, error) {
+	if filepath.Ext(path) == ".bpl" {
+		files, err := bpl.ReadBplFromFile(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		manifestBytes, ok := files["plugin.yaml"]
+		if !ok {
+			return nil, nil, errors.New("missing manifest \"plugin.yaml\" file")
+		}
+		return manifestBytes, runtime.BentoPluginArchiveSource(files), nil
+	}
+
+	manifestBytes, err := ifs.ReadFile(ifs.OS(), filepath.Join(path, "plugin.yaml"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read manifest: %w", err)
+	}
+
+	return manifestBytes, runtime.DirSource(path), nil
 }

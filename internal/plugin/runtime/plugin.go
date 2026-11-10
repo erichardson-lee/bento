@@ -6,7 +6,7 @@ import (
 
 	"github.com/warpstreamlabs/bento/internal/bundle"
 	"github.com/warpstreamlabs/bento/internal/docs"
-	"github.com/warpstreamlabs/bento/internal/filepath/tar"
+	"github.com/warpstreamlabs/bento/internal/plugin/bpl"
 )
 
 // Plugin is the interface for a single plugin.
@@ -42,9 +42,9 @@ type FSSource struct{ FS fs.FS }
 
 func (FSSource) isPluginSource() {}
 
-type TarMapSource tar.TarFiles
+type BentoPluginArchiveSource bpl.BentoPluginArchive
 
-func (TarMapSource) isPluginSource() {}
+func (BentoPluginArchiveSource) isPluginSource() {}
 
 type ByteSource []byte
 

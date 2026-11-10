@@ -1,4 +1,4 @@
-package tar
+package bpl
 
 import (
 	"archive/tar"
@@ -8,10 +8,11 @@ import (
 	"github.com/warpstreamlabs/bento/internal/filepath/ifs"
 )
 
-type TarFiles map[string][]byte
+type BentoPluginArchive map[string][]byte
 
-func ReadTarFromFile(path string) (TarFiles, error) {
+func ReadBplFromFile(path string) (BentoPluginArchive, error) {
 	// Load from a tar file
+	// Expects config.yaml to be the config, and then loads the rest into memort in a map[Path]Data format
 	tarFile, err := ifs.OS().Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("plugin %v: failed to read plugin file: %w", path, err)
@@ -20,7 +21,7 @@ func ReadTarFromFile(path string) (TarFiles, error) {
 	reader := tar.NewReader(tarFile)
 
 	// Read all files into memory, within the map
-	files := make(TarFiles)
+	files := make(BentoPluginArchive)
 	for {
 		header, err := reader.Next()
 		if err == io.EOF {
