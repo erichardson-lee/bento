@@ -6,6 +6,7 @@ import (
 
 	"github.com/warpstreamlabs/bento/internal/bundle"
 	"github.com/warpstreamlabs/bento/internal/docs"
+	"github.com/warpstreamlabs/bento/internal/filepath/tar"
 )
 
 // Plugin is the interface for a single plugin.
@@ -41,7 +42,7 @@ type FSSource struct{ FS fs.FS }
 
 func (FSSource) isPluginSource() {}
 
-type TarMapSource map[string][]byte
+type TarMapSource tar.TarFiles
 
 func (TarMapSource) isPluginSource() {}
 
