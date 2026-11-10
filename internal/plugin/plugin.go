@@ -1,9 +1,11 @@
 package plugin
 
 import (
+	"archive/tar"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/warpstreamlabs/bento/internal/bundle"
@@ -46,30 +48,125 @@ func InitPlugins(ctx context.Context, env *bundle.Environment, rt runtime.Runtim
 
 	var lints []string
 	for _, path := range pluginPaths {
-		manifestPath := filepath.Join(path, "plugin.yaml")
-		manifestBytes, err := ifs.ReadFile(ifs.OS(), manifestPath)
+		if filepath.Ext(path) != ".bpl" {
+			newlints, err := InitFolderPlugin(path, ctx, env, rt)
+			if err != nil {
+				return nil, err
+			}
+			lints = append(lints, newlints...)
+		} else {
+			newLints, err := InitTarPlugin(path, ctx, env, rt)
+			if err != nil {
+				return nil, err
+			}
+
+			lints = append(lints, newLints...)
+		}
+
+	}
+
+	return lints, nil
+}
+
+func InitTarPlugin(path string, ctx context.Context, env *bundle.Environment, rt runtime.Runtime) ([]string, error) {
+	// Load from a tar file
+	tarFile, err := ifs.OS().Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("plugin %v: failed to read plugin file: %w", path, err)
+	}
+
+	reader := tar.NewReader(tarFile)
+
+	// Read all files into memory, within the map
+	files := make(runtime.TarMapSource)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
-			return nil, fmt.Errorf("plugin %v: failed to read manifest: %w", path, err)
+			return nil, fmt.Errorf("plugin %v: failed to read plugin file: %w", path, err)
 		}
 
-		manifest, manifestLints, err := runtime.ReadManifestYAML(manifestBytes)
-		if err != nil {
-			return nil, fmt.Errorf("plugin %v: %w", path, err)
+		fileData := make([]byte, header.Size)
+		for {
+			bytes, err := reader.Read(fileData)
+			if err != nil && err != io.EOF {
+				return nil, fmt.Errorf("plugin %v: failed to read plugin file: %w", path, err)
+			}
+			if bytes == 0 || err == io.EOF {
+				break
+			}
 		}
+		files[header.Name] = fileData
+	}
 
-		for _, l := range manifestLints {
-			lints = append(lints, fmt.Sprintf("plugin %v: %v", path, l))
-		}
+	// Kinda just same as initFolderPlugin from here
+	// ************************************************************************************************
+	manifestBytes, ok := files["plugin.yaml"]
+	if !ok {
+		return nil, fmt.Errorf("plugin %v: missing plugin.yaml", path)
+	}
 
-		plugin, err := rt.Register(manifest, runtime.DirSource(path))
-		if err != nil {
-			return nil, fmt.Errorf("plugin %v failed to register: %w", manifest.Name, err)
-		}
+	// Converts manifest from bytes to in-memory object
+	manifest, manifestLints, err := runtime.ReadManifestYAML(manifestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("plugin %v: %w", path, err)
+	}
 
-		if err := plugin.RegisterWith(env); err != nil {
-			return nil, fmt.Errorf("plugin %v: failed to register with environment: %w", manifest.Name, err)
-		}
+	var lints []string
+	// Add all linting errors to the list
+	for _, l := range manifestLints {
+		lints = append(lints, fmt.Sprintf("plugin %v: %v", path, l))
+	}
 
+	// Register the plugin with a manifest and a string directory to load from
+	plugin, err := rt.Register(manifest, files)
+	if err != nil {
+		return nil, fmt.Errorf("plugin %v failed to register: %w", manifest.Name, err)
+	}
+
+	// Register with envrionment
+	if err := plugin.RegisterWith(env); err != nil {
+		return nil, fmt.Errorf("plugin %v: failed to register with environment: %w", manifest.Name, err)
+	}
+
+	return lints, nil
+}
+
+func InitFolderPlugin(path string, ctx context.Context, env *bundle.Environment, rt runtime.Runtime) ([]string, error) {
+
+	// Load from a folder
+	manifestPath := filepath.Join(path, "plugin.yaml")
+	manifestBytes, err := ifs.ReadFile(ifs.OS(), manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("plugin %v: failed to read manifest: %w", path, err)
+	}
+
+	// Kinda just same as initTarPlugin from here
+	// ************************************************************************************************
+
+	// Converts manifest from bytes to in-memory object
+	manifest, manifestLints, err := runtime.ReadManifestYAML(manifestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("plugin %v: %w", path, err)
+	}
+
+	var lints []string
+	// Add all linting errors to the list
+	for _, l := range manifestLints {
+		lints = append(lints, fmt.Sprintf("plugin %v: %v", path, l))
+	}
+
+	// Register the plugin with a manifest and a string directory to load from
+	plugin, err := rt.Register(manifest, runtime.DirSource(path))
+	if err != nil {
+		return nil, fmt.Errorf("plugin %v failed to register: %w", manifest.Name, err)
+	}
+
+	// Register with envrionment
+	if err := plugin.RegisterWith(env); err != nil {
+		return nil, fmt.Errorf("plugin %v: failed to register with environment: %w", manifest.Name, err)
 	}
 
 	return lints, nil

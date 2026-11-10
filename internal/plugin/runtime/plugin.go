@@ -41,6 +41,10 @@ type FSSource struct{ FS fs.FS }
 
 func (FSSource) isPluginSource() {}
 
+type TarMapSource map[string][]byte
+
+func (TarMapSource) isPluginSource() {}
+
 type ByteSource []byte
 
 func (ByteSource) isPluginSource() {}

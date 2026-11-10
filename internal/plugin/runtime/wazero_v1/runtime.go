@@ -66,6 +66,12 @@ func (rt *WazeroRuntime) Register(manifest *runtime.Manifest, source runtime.Sou
 		wasm, err = ifs.ReadFile(ifs.OS(), filepath.Join(string(s), path))
 	case runtime.FSSource:
 		wasm, err = fs.ReadFile(s.FS, path)
+	case runtime.TarMapSource:
+		var ok bool
+		wasm, ok = s[path]
+		if !ok {
+			err = fmt.Errorf("File not fount: %v", path)
+		}
 	case runtime.ByteSource:
 		wasm = s
 	default:
